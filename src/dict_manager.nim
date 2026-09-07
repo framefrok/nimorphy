@@ -4,7 +4,7 @@
 import std/[os, osproc, strutils]
 
 const
-  DefaultDictReleaseUrl* = "https://github.com/framefrok/nimorphy/releases/download/v0.1.2/dict.bin.zip"
+  DefaultDictReleaseUrl* = "https://github.com/framefrok/nimorphy/releases/download/v0.1.3/dict.bin.zip"
   DictFileName* = "dict.bin"
 
 proc getAppCacheDictPath*(): string =

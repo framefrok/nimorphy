@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.2"
+version       = "0.1.3"
 author        = "Framefrok"
 description   = "High-performance Russian morphological analyzer and synthesizer for Nim (Pymorphy alternative)"
 license       = "MIT"
