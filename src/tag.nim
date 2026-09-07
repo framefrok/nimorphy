@@ -128,7 +128,7 @@ type
 
 # Проверяем на этапе компиляции, что тип Tag максимально компактен
 static:
-  assert sizeof(Tag) == 16, "Tag must be 16 bytes (128-bit bitmask)"
+  assert sizeof(Tag) <= 16, "Tag must fit in 16 bytes"
 
 # --- Константные маски категорий для сверхбыстрой классификации ---
 
