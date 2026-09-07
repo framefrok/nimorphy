@@ -1,11 +1,28 @@
 ## nimorphy/dict_manager.nim
 ## Менеджер автозагрузки и кэширования словарей
 
-import std/[os, osproc, strutils]
+import std/[os, osproc, streams]
+
+when defined(windows):
+  # Гарантируем корректный вывод кириллицы в консоли Windows
+  proc SetConsoleOutputCP(wCodePageID: cuint): cint {.stdcall, dynlib: "kernel32", importc.}
+  discard SetConsoleOutputCP(65001)
 
 const
   DefaultDictReleaseUrl* = "https://github.com/framefrok/nimorphy/releases/download/v0.1.3/dict.bin.zip"
   DictFileName* = "dict.bin"
+
+proc runCmd(exe: string, args: openArray[string]): bool =
+  ## Безопасный запуск процессов: передаёт аргументы напрямую (UTF-16 на Windows),
+  ## минуя cmd.exe и проблемы с не-ASCII путями и экранированием.
+  try:
+    let p = startProcess(exe, args = args, options = {poUsePath, poStdErrToStdOut})
+    defer: p.close()
+    # Вычитываем вывод, чтобы процесс не завис при переполнении буфера пайпа
+    discard p.outputStream.readAll()
+    return p.waitForExit() == 0
+  except CatchableError:
+    return false
 
 proc getAppCacheDictPath*(): string =
   let cacheDir = getCacheDir("nimorphy")
@@ -14,55 +31,49 @@ proc getAppCacheDictPath*(): string =
 
 proc extractZip(zipPath, destDir: string) =
   when defined(windows):
-    # 1. Пробуем tar.exe (встроен в Windows 10/11)
-    let tarCmd = "tar.exe -xf " & quoteShell(zipPath) & " -C " & quoteShell(destDir)
-    if execShellCmd(tarCmd) == 0:
+    # 1. Встроенный tar.exe (Windows 10/11)
+    if runCmd("tar.exe", ["-xf", zipPath, "-C", destDir]):
       return
 
-    # 2. Пробуем powershell.exe с экранированием апострофов и флагом -LiteralPath
-    let psZip = zipPath.replace("'", "''")
-    let psDest = destDir.replace("'", "''")
-    let psCmd = "powershell.exe -NoProfile -Command \"Expand-Archive -LiteralPath '" & psZip & "' -DestinationPath '" & psDest & "' -Force\""
-    if execShellCmd(psCmd) == 0:
+    # 2. PowerShell с передачей путей через аргументы
+    let psScript = "& { param($zip, $dest) $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force }"
+    if runCmd("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psScript, zipPath, destDir]):
       return
 
-    # 3. Пробуем python.exe
-    let pyCmd = "python.exe -m zipfile -e " & quoteShell(zipPath) & " " & quoteShell(destDir)
-    if execShellCmd(pyCmd) == 0:
+    # 3. Python (если установлен)
+    if runCmd("python.exe", ["-m", "zipfile", "-e", zipPath, destDir]):
       return
 
     raise newException(IOError, "Не удалось распаковать словарь (tar.exe, powershell.exe и python.exe недоступны)")
   else:
-    if execShellCmd("unzip -o " & quoteShell(zipPath) & " -d " & quoteShell(destDir)) == 0:
+    if runCmd("unzip", ["-o", zipPath, "-d", destDir]):
       return
-    if execShellCmd("tar -xf " & quoteShell(zipPath) & " -C " & quoteShell(destDir)) == 0:
+    if runCmd("tar", ["-xf", zipPath, "-C", destDir]):
       return
-    raise newException(IOError, "Failed to extract dictionary archive (unzip/tar required)")
+    if runCmd("python3", ["-m", "zipfile", "-e", zipPath, destDir]):
+      return
+
+    raise newException(IOError, "Не удалось распаковать архив словаря (требуется unzip, tar или python3)")
 
 proc downloadNative(url, destPath: string) =
-  ## Системная загрузка через curl / PowerShell (не требует внешних OpenSSL DLL)
+  ## Системная загрузка без внешних зависимостей (OpenSSL DLL не требуются)
   when defined(windows):
-    let curlCmd = "curl.exe -f -L -o " & quoteShell(destPath) & " " & quoteShell(url)
-    if execShellCmd(curlCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
+    if runCmd("curl.exe", ["-f", "-L", "-o", destPath, url]) and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
-    let psDest = destPath.replace("'", "''")
-    let psUrl = url.replace("'", "''")
-    let psCmd = "powershell.exe -NoProfile -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('" & psUrl & "', '" & psDest & "')\""
-    if execShellCmd(psCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
+    let psScript = "& { param($u, $p) $ErrorActionPreference = 'Stop'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile($u, $p) }"
+    if runCmd("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psScript, url, destPath]) and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
     raise newException(IOError, "Не удалось скачать словарь через curl.exe или powershell.exe")
   else:
-    let curlCmd = "curl -f -L -o " & quoteShell(destPath) & " " & quoteShell(url)
-    if execShellCmd(curlCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
+    if runCmd("curl", ["-f", "-L", "-o", destPath, url]) and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
-    let wgetCmd = "wget -O " & quoteShell(destPath) & " " & quoteShell(url)
-    if execShellCmd(wgetCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
+    if runCmd("wget", ["-O", destPath, url]) and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
-    raise newException(IOError, "Failed to download dictionary via curl/wget")
+    raise newException(IOError, "Не удалось скачать словарь через curl или wget")
 
 proc downloadPrebuiltDict*(url: string = DefaultDictReleaseUrl, targetPath: string = ""): string =
   let finalPath = if targetPath.len > 0: targetPath else: getAppCacheDictPath()
@@ -87,11 +98,11 @@ proc downloadPrebuiltDict*(url: string = DefaultDictReleaseUrl, targetPath: stri
   return finalPath
 
 proc resolveDictPath*(customPath: string = ""): string =
-  # 1. Пользователь передал путь явно
+  # 1. Явный путь
   if customPath.len > 0 and fileExists(customPath):
     return customPath
 
-  # 2. Поиск по вероятным локальным путям в проекте
+  # 2. Поиск по локальным путям проекта
   let localCandidates = [
     DictFileName,
     "tools" / DictFileName,
@@ -104,10 +115,10 @@ proc resolveDictPath*(customPath: string = ""): string =
     if fileExists(c) and getFileSize(c) > 10_000_000:
       return c
 
-  # 3. Файл уже есть в системном кэше
+  # 3. Файл уже есть в кэше
   let cachePath = getAppCacheDictPath()
   if fileExists(cachePath) and getFileSize(cachePath) > 10_000_000:
     return cachePath
 
-  # 4. Словаря нигде нет -> автозагрузка через системный Schannel/curl
+  # 4. Скачивание в кэш
   return downloadPrebuiltDict(DefaultDictReleaseUrl, cachePath)
