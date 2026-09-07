@@ -1,7 +1,7 @@
 ## tools/build_dict.nim
-## Автономный сборщик бинарного словаря с автоскачиванием из зеркал и распаковкой
+## Автономный сборщик бинарного словаря с поддержкой слияния связанных лемм (OpenCorpora Links)
 
-import std/[parsexml, streams, tables, strutils, times, os, osproc, algorithm]
+import std/[parsexml, streams, tables, sets, strutils, times, os, osproc, algorithm]
 import ../src/[tag, trie, dict]
 
 type
@@ -10,9 +10,13 @@ type
     tagId: uint16
     prefix: string
 
-  RawForm = object
+  StoredForm = object
     text: string
-    tag: Tag
+    tagId: uint16
+
+  StoredLemma = object
+    forms: seq[StoredForm]
+    isMerged: bool
 
   BuilderNode = ref object
     charByte: uint8
@@ -174,23 +178,29 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
   var stringMap = initTable[string, uint32]()
   stringMap[""] = 0
 
-  var rawRules: seq[ParadigmRule] = @[]
-  var paradigmOffsets: seq[uint32] = @[0]
-  var paradigmMap = initTable[seq[RawRule], uint32]()
-  let builderRoot = BuilderNode(charByte: 0)
+  # Хранилище распарсенных лемм
+  var lemmaTable = initTable[uint32, StoredLemma]()
+  var lemmaOrder: seq[uint32] = @[]
+
+  # Маппинг связей
+  var mergeableLinkTypes = initHashSet[uint32]()
+  var curTypeId: uint32 = 0
 
   var curElem = ""
+  var curLemmaId: uint32 = 0
   var inL = false
   var inF = false
   var curLemmaTags: GrammemeSet = {}
   var curFormText = ""
   var curFormTags: GrammemeSet = {}
-  var curForms: seq[RawForm] = @[]
+  var curForms: seq[StoredForm] = @[]
 
-  var lemmaCount = 0
+  var linkFrom: uint32 = 0
+  var linkTo: uint32 = 0
+  var linkType: uint32 = 0
+
   let startTime = cpuTime()
-
-  echo "Парсинг XML-дампа..."
+  echo "1/4. Парсинг XML-дампа (леммы и грамматические связи)..."
 
   while true:
     xml.next()
@@ -201,17 +211,24 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
       of "lemma":
         curForms.setLen(0)
         curLemmaTags = {}
+        curLemmaId = 0
       of "l":
         inL = true
       of "f":
         inF = true
         curFormText = ""
         curFormTags = {}
+      of "type":
+        curTypeId = 0
+      of "link":
+        linkFrom = 0
+        linkTo = 0
+        linkType = 0
       else: discard
 
     of xmlAttribute:
-      if curElem == "l" and xml.attrKey == "t":
-        discard
+      if curElem == "lemma" and xml.attrKey == "id":
+        curLemmaId = parseUInt(xml.attrValue).uint32
       elif curElem == "f" and xml.attrKey == "t":
         curFormText = xml.attrValue.toLowerAscii()
       elif curElem == "g" and xml.attrKey == "v":
@@ -223,6 +240,19 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
             curFormTags.incl(g)
         except ValueError:
           discard
+      elif curElem == "type" and xml.attrKey == "id":
+        curTypeId = parseUInt(xml.attrValue).uint32
+      elif curElem == "link":
+        if xml.attrKey == "from": linkFrom = parseUInt(xml.attrValue).uint32
+        elif xml.attrKey == "to": linkTo = parseUInt(xml.attrValue).uint32
+        elif xml.attrKey == "type": linkType = parseUInt(xml.attrValue).uint32
+
+    of xmlCharData:
+      if curElem == "type" and curTypeId > 0:
+        let tName = xml.charData.toUpperAscii()
+        # Отбираем грамматические связи форм одного слова
+        if "INFN-VERB" in tName or "INFN-GRND" in tName or "ADJF-ADJS" in tName or "ADJF-COMP" in tName:
+          mergeableLinkTypes.incl(curTypeId)
 
     of xmlElementEnd:
       case xml.elementName
@@ -232,49 +262,30 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
         inF = false
         if curFormText.len > 0:
           let fullTag = initTag(curLemmaTags + curFormTags)
-          curForms.add(RawForm(text: curFormText, tag: fullTag))
+          let tId = addTag(tags, tagMap, fullTag)
+          curForms.add(StoredForm(text: curFormText, tagId: tId))
       of "lemma":
-        if curForms.len > 0:
-          inc lemmaCount
+        if curForms.len > 0 and curLemmaId > 0:
+          lemmaTable[curLemmaId] = StoredLemma(forms: curForms, isMerged: false)
+          lemmaOrder.add(curLemmaId)
 
-          var lcpLen = curForms[0].text.len
-          for i in 1 ..< curForms.len:
-            lcpLen = min(lcpLen, getLcp(curForms[0].text, curForms[i].text))
-          
-          var pRules: seq[RawRule] = newSeqOfCap[RawRule](curForms.len)
-          for f in curForms:
-            let suffix = f.text[lcpLen .. ^1]
-            let tagId = addTag(tags, tagMap, f.tag)
-            pRules.add(RawRule(suffix: suffix, tagId: tagId, prefix: ""))
-
-          var paradigmId: uint32 = 0
-          if paradigmMap.hasKey(pRules):
-            paradigmId = paradigmMap[pRules]
-          else:
-            paradigmId = (paradigmOffsets.len - 1).uint32
-            paradigmMap[pRules] = paradigmId
-            for r in pRules:
-              let sOff = addString(stringPool, stringMap, r.suffix)
-              let pOff = addString(stringPool, stringMap, r.prefix)
-              rawRules.add(ParadigmRule(
-                suffixOffset: sOff,
-                tagId: r.tagId,
-                prefixOffset: pOff.uint16
-              ))
-            paradigmOffsets.add(rawRules.len.uint32)
-
-          for formIdx in 0 ..< curForms.len:
-            let payload = WordPayload(
-              paradigmId: paradigmId,
-              formIdx: formIdx.uint16
-            )
-            insertWord(builderRoot, curForms[formIdx].text, payload)
-
-          if lemmaCount mod 50000 == 0:
-            echo "Обработано лемм: ", lemmaCount, " (", (cpuTime() - startTime).formatFloat(ffDecimal, 1), " сек.)"
-
-          if limitLemmata > 0 and lemmaCount >= limitLemmata:
+          if limitLemmata > 0 and lemmaOrder.len >= limitLemmata:
             break
+      of "link":
+        # Склеиваем формы подчиненной леммы (linkTo) в родительскую лемму (linkFrom)
+        if linkType in mergeableLinkTypes:
+          if lemmaTable.hasKey(linkFrom) and lemmaTable.hasKey(linkTo):
+            let toForms = lemmaTable[linkTo].forms
+            for tf in toForms:
+              # Проверяем на дубликаты
+              var exists = false
+              for ef in lemmaTable[linkFrom].forms:
+                if ef.text == tf.text and ef.tagId == tf.tagId:
+                  exists = true
+                  break
+              if not exists:
+                lemmaTable[linkFrom].forms.add(tf)
+            lemmaTable[linkTo].isMerged = true
       else: discard
 
     of xmlEof:
@@ -282,12 +293,62 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
     else: discard
 
   xml.close()
-  echo "Парсинг завершен за ", (cpuTime() - startTime).formatFloat(ffDecimal, 2), " сек."
-  echo "Уникальных лемм: ", lemmaCount
-  echo "Уникальных тегов: ", tags.len
-  echo "Уникальных парадигм: ", paradigmOffsets.len - 1
+  echo "Парсинг XML завершен за ", (cpuTime() - startTime).formatFloat(ffDecimal, 2), " сек."
+  echo "Всего лемм в словаре: ", lemmaOrder.len
 
-  echo "Линеаризация префиксного дерева (Trie)..."
+  echo "2/4. Построение парадигм и дедупликация правил..."
+  var rawRules: seq[ParadigmRule] = @[]
+  var paradigmOffsets: seq[uint32] = @[0]
+  var paradigmMap = initTable[seq[RawRule], uint32]()
+  let builderRoot = BuilderNode(charByte: 0)
+
+  var activeLemmas = 0
+  for lId in lemmaOrder:
+    let item = lemmaTable[lId]
+    if item.isMerged or item.forms.len == 0:
+      continue
+
+    inc activeLemmas
+    let forms = item.forms
+
+    var lcpLen = forms[0].text.len
+    for i in 1 ..< forms.len:
+      lcpLen = min(lcpLen, getLcp(forms[0].text, forms[i].text))
+
+    var pRules: seq[RawRule] = newSeqOfCap[RawRule](forms.len)
+    for f in forms:
+      let suffix = forms[0].text[lcpLen .. ^1] # safe slice
+      let sfx = f.text[lcpLen .. ^1]
+      pRules.add(RawRule(suffix: sfx, tagId: f.tagId, prefix: ""))
+
+    var paradigmId: uint32 = 0
+    if paradigmMap.hasKey(pRules):
+      paradigmId = paradigmMap[pRules]
+    else:
+      paradigmId = (paradigmOffsets.len - 1).uint32
+      paradigmMap[pRules] = paradigmId
+      for r in pRules:
+        let sOff = addString(stringPool, stringMap, r.suffix)
+        let pOff = addString(stringPool, stringMap, r.prefix)
+        rawRules.add(ParadigmRule(
+          suffixOffset: sOff,
+          tagId: r.tagId,
+          prefixOffset: pOff.uint16
+        ))
+      paradigmOffsets.add(rawRules.len.uint32)
+
+    for formIdx in 0 ..< forms.len:
+      let payload = WordPayload(
+        paradigmId: paradigmId,
+        formIdx: formIdx.uint16
+      )
+      insertWord(builderRoot, forms[formIdx].text, payload)
+
+  echo "Активных объединенных лемм: ", activeLemmas
+  echo "Уникальных парадигм: ", paradigmOffsets.len - 1
+  echo "Уникальных тегов: ", tags.len
+
+  echo "3/4. Линеаризация префиксного дерева (Trie)..."
   let trieStart = cpuTime()
   var flatNodes: seq[TrieNode] = @[]
   var flatPayloads: seq[WordPayload] = @[]
@@ -295,7 +356,7 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
   echo "Trie скомпилирован за ", (cpuTime() - trieStart).formatFloat(ffDecimal, 2), " сек."
   echo "Всего узлов дерева: ", flatNodes.len
 
-  echo "Запись бинарного словаря: ", outBinPath
+  echo "4/4. Запись бинарного словаря: ", outBinPath
   var outFile = open(outBinPath, fmWrite)
   
   var header = DictHeader(
@@ -354,7 +415,7 @@ proc buildDictionary*(xmlPath, outBinPath: string, limitLemmata: int = 0) =
   outFile.close()
 
   let totalSize = getFileSize(outBinPath)
-  echo "Успешно! Размер словаря: ", (totalSize.float / (1024.0 * 1024.0)).formatFloat(ffDecimal, 2), " МБ."
+  echo "Сборка завершена успешно! Размер словаря: ", (totalSize.float / (1024.0 * 1024.0)).formatFloat(ffDecimal, 2), " МБ."
 
 when isMainModule:
   let args = commandLineParams()

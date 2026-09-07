@@ -83,11 +83,11 @@ proc extractStem(dict: MorphDict, word: string, payload: WordPayload): string {.
 # --- Словоизменение (Inflect) ---
 
 proc inflect*(analyzer: MorphAnalyzer, p: Parse, requiredGrammemes: GrammemeSet): Parse =
-  ## Изменяет форму слова p в соответствии с требуемыми граммемами (например, {ablt}, {plur, gent})
+  ## Изменяет форму слова p в соответствии с требуемыми граммемами (например, {ablt}, {plur, gent}, {VERB, past, femn})
   result = p
   if analyzer == nil or analyzer.dict == nil:
     return
-  if p.paradigmId == 0 and p.formIdx == 0:
+  if p.word.len == 0:
     return
 
   let dict = analyzer.dict
@@ -95,24 +95,39 @@ proc inflect*(analyzer: MorphAnalyzer, p: Parse, requiredGrammemes: GrammemeSet)
   if pLen <= 0:
     return
 
-  # Формируем целевой тег с сохранением контекста
-  var targetGrammemes = p.tag.grammemes
-  
-  if (requiredGrammemes * CaseGrammemes).len > 0:
-    targetGrammemes = targetGrammemes - CaseGrammemes
-  if (requiredGrammemes * NumberGrammemes).len > 0:
-    targetGrammemes = targetGrammemes - NumberGrammemes
-  if (requiredGrammemes * GenderGrammemes).len > 0:
-    targetGrammemes = targetGrammemes - GenderGrammemes
-  if (requiredGrammemes * TenseGrammemes).len > 0:
-    targetGrammemes = targetGrammemes - TenseGrammemes
+  var req = requiredGrammemes
 
-  targetGrammemes = targetGrammemes + requiredGrammemes
+  # 1. Автопереход INFN -> VERB: если у инфинитива запрошено время, лицо или наклонение
+  if INFN in p.tag.grammemes:
+    if (req * PosGrammemes).len == 0 and (req * (TenseGrammemes + PersonGrammemes + MoodGrammemes)).len > 0:
+      req.incl(VERB)
+
+  # 2. Формируем целевой тег, очищая взаимоисключающие грамматические категории
+  var targetGrammemes = p.tag.grammemes
+
+  if (req * PosGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - PosGrammemes
+  if (req * CaseGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - CaseGrammemes
+  if (req * NumberGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - NumberGrammemes
+  if (req * GenderGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - GenderGrammemes
+  if (req * TenseGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - TenseGrammemes
+  if (req * PersonGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - PersonGrammemes
+  if (req * MoodGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - MoodGrammemes
+  if (req * VoiceGrammemes).len > 0:
+    targetGrammemes = targetGrammemes - VoiceGrammemes
+
+  targetGrammemes = targetGrammemes + req
 
   let payload = WordPayload(paradigmId: p.paradigmId, formIdx: p.formIdx)
   let stem = dict.extractStem(toLowerRu(p.word), payload)
 
-  # Ищем форму в парадигме с максимальным совпадением граммем
+  # 3. Ищем форму в парадигме с максимальным совпадением целевых граммем
   var bestIdx = -1
   var bestScore = -1
 
@@ -120,13 +135,14 @@ proc inflect*(analyzer: MorphAnalyzer, p: Parse, requiredGrammemes: GrammemeSet)
     let rule = dict.getRule(p.paradigmId, idx.uint16)
     let formTag = dict.tags[rule.tagId]
 
-    if requiredGrammemes <= formTag.grammemes:
+    # Форма обязана содержать все запрашиваемые граммемы
+    if req <= formTag.grammemes:
       let matchCount = (formTag.grammemes * targetGrammemes).len
       if matchCount > bestScore:
         bestScore = matchCount
         bestIdx = idx
 
-  # Если форма найдена — синтезируем новое слово
+  # 4. Если форма найдена — синтезируем новое слово
   if bestIdx >= 0:
     let bestRule = dict.getRule(p.paradigmId, bestIdx.uint16)
     let sfx = dict.getString(bestRule.suffixOffset)
