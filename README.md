@@ -1,3 +1,6 @@
+[🇬🇧 English](#english) · [🇷🇺 Русский](#русский)
+
+<a name="english"></a>
 # nimorphy
 
 ### Fast and lightweight Russian morphological analysis for Nim
@@ -500,6 +503,7 @@ For larger changes, opening an issue first is recommended.
 The core dictionary lookup and morphological operations are usable, while some higher-level areas—especially unknown-word analysis and parse ranking—are intentionally heuristic and continue to evolve.
 
 ---
+<a name="русский"></a>
 
 # nimorphy
 
