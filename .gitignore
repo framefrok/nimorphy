@@ -1,0 +1,20 @@
+# Бинарники и исполняемые файлы
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Кеш компилятора
+nimcache/
+*.nimble-link
+
+# Огромные дампы и словари (их место в Releases, а не в Git!)
+*.bin
+*.xml
+*.bz2
+*.zip
+download_dict_tmp.py
+
+# Системные файлы
+.DS_Store
+Thumbs.db
