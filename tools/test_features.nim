@@ -1,5 +1,5 @@
-## tools/test_features.nim
 import ../src/nimorphy
+import ../src/tag
 
 let morph = newMorphAnalyzer("dict.bin")
 
@@ -9,7 +9,7 @@ echo "========================================"
 
 # 1. Склонение (Inflect)
 echo "\n--- 1. Словоизменение (Inflect) ---"
-let sword = morph.parse("меч")[0]
+let sword = morph.bestParse("меч")
 echo "Исходное слово: ", sword.word, " (", sword.tag, ")"
 
 let swordAblt = morph.inflect(sword, {ablt})
@@ -20,16 +20,16 @@ echo "Множеств. родительный:      ", swordPlurGen.word # ме
 
 # 2. Согласование с числительными (agreeWithNumber)
 echo "\n--- 2. Согласование с числительными ---"
-let coin = morph.parse("монета")[0]
+let coin = morph.bestParse("монета")
 for n in [1, 2, 4, 5, 11, 21, 25]:
   let agreed = morph.agreeWithNumber(coin, n)
   echo n, " ", agreed.word
 
 # 3. Предиктор для неизвестных слов (Heuristic Predictor)
 echo "\n--- 3. Предиктор неизвестных несловарных слов ---"
-for unknown in ["криптовалютный", "нейросеточка", "байткодом"]:
-  let res = morph.parse(unknown)
-  if res.len > 0:
-    echo unknown, " -> лемма: ", res[0].normalForm, " | тег: [", res[0].tag, "] (score: ", res[0].score, ")"
+for unknown in ["криптовалютный", "нейросеточка", "байткодом", "вуглускр"]:
+  let res = morph.bestParse(unknown)
+  if res.word != "": # Проверяем, что разбор удался
+    echo unknown, " -> лемма: ", res.normalForm, " | тег: [", res.tag, "] (score: ", res.score, ")"
 
 morph.close()
