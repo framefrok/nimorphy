@@ -392,11 +392,10 @@ For large changes, opening an issue before implementation is recommended.
 
 ---
 
-## 📄 License
+## 📄 License & Credits
 
-Distributed under the **MIT License**.
-
-See [`LICENSE`](LICENSE) for the full license text.
+- **Library Code:** Distributed under the **[MIT License](LICENSE)** © 2026 framefrok.
+- **Dictionary Data:** Based on data from the **[OpenCorpora](http://opencorpora.org/)** project, licensed under **[Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)](https://creativecommons.org/licenses/by-sa/3.0/)**.
 
 ---
 
@@ -782,11 +781,10 @@ See [`LICENSE`](LICENSE) for the full license text.
 
 ---
 
-## 📄 Лицензия
+## 📄 Лицензии и авторские права (License & Credits)
 
-Проект распространяется под лицензией **MIT**.
-
-Полный текст лицензии находится в файле [`LICENSE`](LICENSE).
+- **Код библиотеки (Code):** распространяется под лицензией [MIT](LICENSE) © 2026 framefrok.
+- **Словарные данные (Dictionary Data):** используются данные проекта [OpenCorpora](http://opencorpora.org/), распространяемые по лицензии [Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)](https://creativecommons.org/licenses/by-sa/3.0/).
 
 ---
 
