@@ -14,35 +14,28 @@ proc getAppCacheDictPath*(): string =
 
 proc extractZip(zipPath, destDir: string) =
   when defined(windows):
-    let cmd = "powershell -command \"Expand-Archive -Path '" & zipPath & "' -DestinationPath '" & destDir & "' -Force\""
-    if execCmd(cmd) != 0:
-      raise newException(IOError, "Failed to extract dictionary archive via PowerShell")
+    # 1. Пробуем встроенный в Windows tar.exe (самый быстрый способ)
+    let tarCmd = "tar.exe -xf \"" & zipPath & "\" -C \"" & destDir & "\""
+    if execCmd(tarCmd) == 0:
+      return
+
+    # 2. Запасной вариант через powershell.exe (с обязательным расширением .exe)
+    let psCmd = "powershell.exe -NoProfile -Command \"Expand-Archive -Path '" & zipPath & "' -DestinationPath '" & destDir & "' -Force\""
+    if execCmd(psCmd) == 0:
+      return
+
+    # 3. Вариант через python
+    let pyCmd = "python.exe -m zipfile -e \"" & zipPath & "\" \"" & destDir & "\""
+    if execCmd(pyCmd) == 0:
+      return
+
+    raise newException(IOError, "Не удалось распаковать словарь (tar.exe / powershell.exe недоступны)")
   else:
     let cmd = "unzip -o \"" & zipPath & "\" -d \"" & destDir & "\""
-    if execCmd(cmd) != 0:
-      let tarCmd = "tar -xf \"" & zipPath & "\" -C \"" & destDir & "\""
-      if execCmd(tarCmd) != 0:
-        raise newException(IOError, "Failed to extract dictionary archive (unzip/tar required)")
-
-proc downloadNative(url, destPath: string) =
-  ## Системная загрузка без зависимости от OpenSSL DLL
-  when defined(windows):
-    # В Windows 10/11 есть встроенный curl.exe со встроенным Schannel SSL
-    let curlCmd = "curl.exe -f -L -o \"" & destPath & "\" \"" & url & "\""
-    if execCmd(curlCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
-      return
-
-    # Запасной вариант через PowerShell
-    let psCmd = "powershell -command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('" & url & "', '" & destPath & "')\""
-    if execCmd(psCmd) != 0:
-      raise newException(IOError, "Не удалось скачать словарь через curl/PowerShell")
-  else:
-    let curlCmd = "curl -f -L -o \"" & destPath & "\" \"" & url & "\""
-    if execCmd(curlCmd) == 0:
-      return
-    let wgetCmd = "wget -O \"" & destPath & "\" \"" & url & "\""
-    if execCmd(wgetCmd) != 0:
-      raise newException(IOError, "Не удалось скачать словарь через curl/wget")
+    if execCmd(cmd) == 0: return
+    let tarCmd = "tar -xf \"" & zipPath & "\" -C \"" & destDir & "\""
+    if execCmd(tarCmd) == 0: return
+    raise newException(IOError, "Failed to extract dictionary archive (unzip/tar required)")
 
 proc downloadPrebuiltDict*(url: string = DefaultDictReleaseUrl, targetPath: string = ""): string =
   let finalPath = if targetPath.len > 0: targetPath else: getAppCacheDictPath()
