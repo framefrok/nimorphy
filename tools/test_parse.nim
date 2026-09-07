@@ -1,19 +1,20 @@
-## tools/test_parse.nim
 import std/[times, strutils]
 import ../src/nimorphy
+import ../src/tag
 
 let morph = newMorphAnalyzer("dict.bin")
 
 echo "=== 1. Проверка омонимии слова 'стали' ==="
+# Для омонимии используем parse, чтобы получить ВСЕ варианты
 let parses = morph.parse("стали")
 for p in parses:
   echo "Лемма: ", p.normalForm, " | Тег: ", p.tag
 
 echo "\n=== 2. Проверка регистра и буквы Ё ==="
 for w in ["ЁЖ", "ежа", "России", "быстро"]:
-  let res = morph.parse(w)
-  if res.len > 0:
-    echo w, " -> лемма: ", res[0].normalForm, " [", res[0].tag.pos, "]"
+  let res = morph.bestParse(w)
+  if res.word != "":
+    echo w, " -> лемма: ", res.normalForm, " [", res.tag, "]"
 
 echo "\n=== 3. Бенчмарк производительности (1 000 000 разборов) ==="
 let words = ["стали", "человек", "красивый", "программирования", "быстро", "москва"]
@@ -24,6 +25,7 @@ var totalParses = 0
 
 for i in 0 ..< totalIterations:
   let w = words[i mod words.len]
+  # В бенчмарке используем parse(), чтобы нагрузить движок возвратом массивов
   let res = morph.parse(w)
   totalParses += res.len
 
