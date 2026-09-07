@@ -1,808 +1,1005 @@
-# nimorphy ⚡
+# nimorphy
 
-[![Nim](https://img.shields.io/badge/Language-Nim-yellow.svg)](https://nim-lang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Speed](https://img.shields.io/badge/Speed-%3E1.15M%20words%2Fsec-brightgreen.svg)]()
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
+### Fast and lightweight Russian morphological analysis for Nim
 
-> **Ultra-fast Russian morphological analysis and synthesis in pure Nim.**
+`nimorphy` is a native Russian morphological analyzer and word inflection library written in Nim.
 
-**nimorphy** is a high-performance morphological analyzer and synthesizer for the Russian language, written entirely in Nim.
+It is designed for applications that need Russian word analysis without embedding a Python runtime or rebuilding a large in-memory dictionary at startup.
 
-It is designed as a fast and lightweight alternative to Python libraries such as [`pymorphy2`](https://github.com/pymorphy2/pymorphy2) and [`pymorphy3`](https://github.com/nozavroni/pymorphy3), with a strong focus on speed, low memory overhead, fast startup, and efficient dictionary access.
+The library uses a compact binary dictionary, memory-mapped access, a flat trie for word lookup, compact grammatical tags, and stored morphological paradigms.
 
-> 🚀 **~1.16M parses/sec** on a single CPU core  
-> ⚡ **15–20× faster than Cython-based Pymorphy2**  
-> 💾 **< 1 ms dictionary startup** with `mmap`  
-> 🧠 Heuristic analysis of unknown words  
-> 📦 Pure Nim — no Python or Cython required
+## Features
 
----
+* **Russian morphological analysis**
 
-# 🇬🇧 English
+  * Find all available morphological interpretations of a word.
+  * Obtain the normal form (lemma).
+  * Inspect part of speech and grammatical features.
 
-## ✨ Features
+* **Word inflection**
 
-- 🚀 **Extreme Performance** — over **1,150,000 parses/sec** on a single CPU core.
-- 🧠 **Automatic Dictionary Management** — automatically downloads and caches precompiled dictionaries from GitHub Releases.
-- 💾 **Memory Mapping (`mmap`)** — dictionary data is accessed directly from a memory-mapped binary file.
-- ⚡ **Low Allocation Design** — dictionary lookup is designed to avoid unnecessary heap allocations.
-- 🏷️ **Grammeme Bitmasks** — grammatical properties are represented using compact `set[Grammeme]` bitmasks.
-- 🔄 **Inflection** — generate required grammatical forms for case, number, gender, tense, and other supported categories.
-- 🔢 **Numeric Agreement** — automatically select grammatically correct forms for numbers.
-- 🔮 **Unknown Word Prediction** — analyze slang, technical terms, neologisms, and other words missing from the dictionary.
-- 📦 **ARC / ORC Compatible** — designed to work with modern Nim memory management models.
+  * Generate another grammatical form of a known word.
+  * Preserve existing grammatical properties where possible.
+  * Request properties such as case, number, gender, tense, and other supported grammemes.
 
----
+* **Number agreement**
 
-## ⚡ Benchmark
+  * Select the appropriate form for Russian numerals.
+  * Useful for generated text such as:
 
-Single-threaded morphological parsing:
+    * `1 монета`
+    * `2 монеты`
+    * `5 монет`
+    * `21 монета`
 
-| Library | Language | Speed | Startup |
-| :--- | :--- | ---: | ---: |
-| **nimorphy** | **Nim** | **~1,160,000 words/sec** | **< 1 ms** |
-| Pymorphy2 (Fast / DAWG) | Python + Cython | ~180,000 words/sec | ~300 ms |
-| Pymorphy2 (Pure) | Python | ~15,000 words/sec | ~1,200 ms |
+* **Unknown-word heuristics**
 
-> Benchmark results depend on CPU, compiler version, build configuration, dictionary version, and input data.
+  * Attempt morphological analysis for words that are not present in the dictionary.
+  * Uses suffixes, endings, and known morphological patterns.
+  * Useful for technical vocabulary, slang, game terminology, and neologisms.
 
----
+* **Memory-mapped dictionary**
 
-## 📦 Installation
+  * The binary dictionary is accessed directly through memory mapping.
+  * The entire dictionary does not need to be parsed into a large object graph on startup.
 
-Install with Nimble:
+* **Compact runtime representation**
 
-    nimble install nimorphy
+  * Word lookup uses a flat trie.
+  * Grammatical information is stored as compact bit sets.
+  * Morphological paradigms are deduplicated during dictionary generation.
 
-Then import the library:
+* **Native Nim implementation**
 
-    import nimorphy
+  * Runtime code is written in Nim.
+  * No Python or Cython runtime is required by the analyzer itself.
 
-No manual dictionary installation is required.
+## Quick start
 
-The dictionary is automatically resolved and downloaded when necessary.
+Install the package with Nimble:
 
----
+```bash
+nimble install nimorphy
+```
 
-## 🚀 Quick Start
+Then:
 
-    import nimorphy
+```nim
+import nimorphy
 
-    # Initialize analyzer.
-    # Dictionary is automatically resolved or downloaded.
-    let morph = newMorphAnalyzer()
+let morph = newMorphAnalyzer()
 
-    # Morphological analysis
-    let parses = morph.parse("стали")
+let parses = morph.parse("стали")
 
-    for p in parses:
-      echo p.normalForm, " -> ", p.tag
+for p in parses:
+  echo p.normalForm, " -> ", p.tag
 
-    # Example output:
-    # сталь -> NOUN,inan,femn,sing,gent
-    # стать -> VERB,plur,perf,intr,past,indc
+morph.close()
+```
 
+A word may have multiple interpretations. For example, `стали` can correspond to different lemmas and grammatical analyses depending on interpretation.
 
-    # Inflection
-    let sword = morph.parse("меч")[0]
+## Inflection
 
-    echo morph.inflect(sword, {ablt}).word
-    # мечом
+Start with a parsed word and request the grammatical properties you need:
 
-    echo morph.inflect(sword, {plur, gent}).word
-    # мечей
+```nim
+import nimorphy
 
+let morph = newMorphAnalyzer()
 
-    # Numeric agreement
-    let coin = morph.parse("монета")[0]
+let sword = morph.parse("меч")[0]
 
-    echo morph.agreeWithNumber(coin, 1).word
-    # монета
+echo morph.inflect(sword, {ablt}).word
+# мечом
 
-    echo morph.agreeWithNumber(coin, 4).word
-    # монеты
+echo morph.inflect(sword, {plur, gent}).word
+# мечей
 
-    echo morph.agreeWithNumber(coin, 10).word
-    # монет
+morph.close()
+```
 
+`inflect()` operates on a `Parse` result and uses the word's stored paradigm to select the requested form.
 
-    # Unknown word heuristics
-    let unknown = morph.parse("байткодом")[0]
+## Number agreement
 
-    echo unknown.normalForm
-    # байткод
+Russian noun forms change depending on the number.
 
-    echo unknown.tag
-    # NOUN,inan,masc,sing,ablt
+`nimorphy` provides a helper for the common agreement rules:
 
+```nim
+import nimorphy
 
-    morph.close()
+let morph = newMorphAnalyzer()
 
----
+let coin = morph.parse("монета")[0]
 
-## 🔄 Morphological Operations
+echo morph.agreeWithNumber(coin, 1).word
+# монета
 
-### Analysis
+echo morph.agreeWithNumber(coin, 2).word
+# монеты
 
-Parse a word and obtain all available morphological interpretations:
+echo morph.agreeWithNumber(coin, 5).word
+# монет
 
-    let parses = morph.parse("стали")
+echo morph.agreeWithNumber(coin, 21).word
+# монета
 
-    for p in parses:
-      echo p.normalForm, " -> ", p.tag
+morph.close()
+```
 
-Example:
+This is particularly useful for procedural text generation, games, RPG systems, bots, interfaces, and other applications where text is generated dynamically.
 
-    сталь -> NOUN,inan,femn,sing,gent
-    стать -> VERB,plur,perf,intr,past,indc
+## Unknown words
 
-### Inflection
+A dictionary can never contain every future word.
 
-Generate a requested grammatical form:
+For words that are not found directly, `nimorphy` can fall back to a heuristic predictor.
 
-    let sword = morph.parse("меч")[0]
+For example:
 
-    echo morph.inflect(sword, {ablt}).word
-    # мечом
+```nim
+import nimorphy
 
-    echo morph.inflect(sword, {plur, gent}).word
-    # мечей
+let morph = newMorphAnalyzer()
 
-### Numeric Agreement
+let result = morph.parse("байткодом")[0]
 
-Automatically select a form that agrees with a number:
+echo result.normalForm
+# байткод
 
-    let coin = morph.parse("монета")[0]
+echo result.tag
+# NOUN,inan,masc,sing,ablt
 
-    echo morph.agreeWithNumber(coin, 1).word
-    # монета
+morph.close()
+```
 
-    echo morph.agreeWithNumber(coin, 2).word
-    # монеты
+The predictor is heuristic, not a statistical or neural language model. Its result should therefore be treated as an informed guess rather than a guaranteed analysis.
 
-    echo morph.agreeWithNumber(coin, 5).word
-    # монет
+This makes it useful for vocabulary that commonly appears outside a static dictionary, such as:
 
-    echo morph.agreeWithNumber(coin, 21).word
-    # монета
+* technical terms;
+* software and technology vocabulary;
+* slang;
+* game terminology;
+* user-generated words;
+* newly coined words.
 
----
+## How it works
 
-## 🧠 Unknown Words
+The runtime is built around a precompiled binary dictionary.
 
-Not every possible Russian word can exist in a dictionary.
+```text
+                    OpenCorpora XML
+                           │
+                           ▼
+                    Dictionary builder
+                           │
+             ┌─────────────┴─────────────┐
+             │                           │
+       paradigm processing          trie construction
+             │                           │
+             └─────────────┬─────────────┘
+                           ▼
+                        dict.bin
+                           │
+                           ▼
+                         mmap
+                           │
+                           ▼
+                       MorphDict
+                           │
+                           ▼
+                       word lookup
+                           │
+                  ┌────────┴────────┐
+                  ▼                 ▼
+             morphology         paradigm
+              analysis           lookup
+```
 
-For unknown words, `nimorphy` uses a heuristic predictor that analyzes suffixes, endings, and morphological patterns.
+### Memory mapping
 
-Example:
+The runtime dictionary is stored in `dict.bin` and accessed through memory mapping.
 
-    байткодом
-        │
-        ├── normal form: байткод
-        ├── POS: NOUN
-        ├── gender: MASC
-        ├── number: SING
-        └── case: ABLT
+Instead of loading the whole dictionary into a collection of runtime objects, the analyzer works with the mapped binary representation directly.
 
-This is useful for:
+This keeps startup work small and avoids duplicating large dictionary structures on the heap.
 
-- technical terminology;
-- technology names;
-- slang;
-- game terminology;
-- neologisms;
-- user-generated words.
+### Trie lookup
 
----
+Known words are stored in a compact flat trie.
 
-## ⚙️ Architecture
+Conceptually:
 
-### 1. Memory Mapping
+```text
+м
+└── е
+    └── ч
+        └── terminal
+            └── payload
+```
 
-The binary dictionary `dict.bin` is mapped directly into the process address space using `mmap`.
+The trie stores references to the corresponding word metadata and paradigms.
 
-Traditional approach:
+The implementation uses compact integer offsets and a packed node representation to keep dictionary access inexpensive.
 
+### Paradigms
+
+Morphological forms are grouped into paradigms instead of being treated as completely unrelated dictionary entries.
+
+A paradigm contains the information required to reconstruct the forms of a word together with their grammatical tags.
+
+Equivalent paradigms can be shared during dictionary generation, reducing duplicated data.
+
+### Grammemes
+
+Grammatical properties are represented by Nim's compact `set[Grammeme]` representation.
+
+This allows operations such as checking and combining grammatical properties without storing large collections of strings for every parse.
+
+## Dictionary generation
+
+Most users do not need to build the dictionary manually.
+
+The repository also contains a standalone dictionary builder for converting an OpenCorpora XML dump into the binary format used by the runtime.
+
+A typical build command is:
+
+```bash
+nim c -r -d:release --mm:orc -d:danger tools/build_dict.nim
+```
+
+The general pipeline is:
+
+```text
+OpenCorpora XML
+      │
+      ▼
+   XML parsing
+      │
+      ▼
+  lemma/link processing
+      │
+      ▼
+ paradigm normalization
+      │
+      ▼
+ paradigm deduplication
+      │
+      ▼
+  compact trie
+      │
+      ▼
+ binary serialization
+      │
+      ▼
     dict.bin
-       ↓
-      read
-       ↓
-      parse
-       ↓
-    allocate
-       ↓
-   build objects
-       ↓
-     lookup
+```
 
-`nimorphy` approach:
+The builder is intentionally separate from the runtime so applications do not need to carry dictionary-building logic with them.
 
-    dict.bin
-       ↓
-      mmap
-       ↓
-  mapped dictionary
-       ↓
-     lookup
+## Dictionary format
 
-This avoids parsing and rebuilding the entire dictionary during every startup.
+The runtime dictionary is a custom binary format designed specifically for fast lookup and memory mapping.
 
-### 2. Compact Trie
+At a high level it contains structures for:
 
-Dictionary lookup is based on a compact prefix tree:
+```text
+Header
+Tag / grammeme data
+String storage
+Morphological rules
+Paradigm indexes
+Word payloads
+Trie nodes
+```
 
-    "м"
-     │
-     └── "е"
-          │
-          └── "ч"
-               │
-               └── terminal
-                    │
-                    └── paradigm
+The runtime validates the dictionary structure before using its internal offsets and counts.
 
-Trie nodes are stored in a compact binary representation designed for efficient memory access.
+This makes the binary representation compact while still allowing malformed or incompatible dictionary files to be rejected.
 
-### 3. Paradigm Compression
+## Dictionary management
 
-Word forms are not stored as completely independent strings.
+The analyzer can locate and manage the dictionary automatically.
 
-Instead, compact structures can represent:
+```nim
+import nimorphy
 
-    stem
-    +
-    ending
-    +
-    paradigm
-    +
-    grammatical metadata
+let morph = newMorphAnalyzer()
 
-Example:
+echo morph.parse("дом")[0].normalForm
 
-    мечом
-     │
-     ├── stem: меч
-     └── ending: ом
+morph.close()
+```
 
-This reduces duplication inside the dictionary.
+A precompiled dictionary can be cached locally and reused by subsequent runs.
 
-### 4. Grammeme Bitmasks
+For controlled deployments, it is also possible to work with a specific dictionary file rather than relying on automatic acquisition.
 
-Grammatical properties are represented using:
+## Performance
 
-    set[Grammeme]
+`nimorphy` was built with performance-sensitive applications in mind.
 
-This allows fast checks using compact bit operations instead of repeated string comparisons or heavyweight runtime structures.
+The runtime avoids several common sources of overhead:
 
----
+* the dictionary is memory-mapped;
+* known-word lookup uses a compact trie;
+* dictionary structures are represented with fixed-size integer offsets;
+* paradigms are deduplicated during generation;
+* grammatical tags use compact sets;
+* the runtime does not require a Python interpreter.
 
-## 🗃️ Dictionary
+A benchmark included in the repository performs repeated parsing of a fixed word set.
 
-The main runtime dictionary file is:
+Benchmark results depend strongly on:
 
-    dict.bin
+* CPU architecture;
+* Nim version;
+* compiler settings;
+* memory manager;
+* dictionary version;
+* input data;
+* benchmark methodology.
 
-A simplified representation:
+For that reason, benchmark numbers should be treated as machine-specific measurements rather than universal performance guarantees.
 
-    dict.bin
-    │
-    ├── Header
-    ├── Trie Nodes
-    ├── UTF-8 Transitions
-    ├── Paradigm References
-    ├── Word Metadata
-    ├── Endings
-    └── Grammeme Data
+## Intended use
 
-The binary format is designed specifically for fast lookup and memory mapping.
+`nimorphy` is suitable for applications such as:
 
----
+* Russian text normalization;
+* full-text search and indexing;
+* NLP utilities;
+* chatbots;
+* text-processing tools;
+* document analysis;
+* corpus processing;
+* procedural text generation;
+* game dialogue systems;
+* RPG and MUD engines;
+* localization and grammar-aware interfaces.
 
-## 🔨 Building the Dictionary
+One particularly useful combination is morphological analysis with generated text:
 
-Manual dictionary compilation is normally unnecessary.
+```text
+1 найденный меч
+2 найденных меча
+5 найденных мечей
+21 найденный меч
+```
 
-To build a dictionary from an OpenCorpora XML dump:
+The library provides the low-level morphological information needed for applications that construct Russian text dynamically.
 
-    nim c -r -d:release --mm:orc -d:danger tools/build_dict.nim
+## Project structure
 
-The builder performs the following pipeline:
+```text
+nimorphy/
+├── src/
+│   ├── analyzer.nim
+│   ├── dict.nim
+│   ├── dict_manager.nim
+│   ├── nimorphy.nim
+│   ├── tag.nim
+│   └── trie.nim
+│
+├── tools/
+│   ├── build_dict.nim
+│   ├── test_features.nim
+│   └── test_parse.nim
+│
+├── nimorphy.nimble
+└── README.md
+```
 
-    OpenCorpora XML
-          │
-          ▼
-        Parse
-          │
-          ▼
-    Paradigm Deduplication
-          │
-          ▼
-      Compact Trie
-          │
-          ▼
-    Binary Serialization
-          │
-          ▼
-        dict.bin
+### Runtime modules
 
----
+* `analyzer.nim` — morphological analysis, inflection, number agreement, and unknown-word handling.
+* `dict.nim` — binary dictionary representation, loading, validation, and access.
+* `dict_manager.nim` — dictionary discovery, download, caching, and management.
+* `tag.nim` — grammatical tags and grammemes.
+* `trie.nim` — compact trie structures and lookup.
+* `nimorphy.nim` — public package interface.
 
-## 🎮 Use Cases
+### Tools
 
-`nimorphy` can be used for:
+* `build_dict.nim` — builds `dict.bin` from OpenCorpora data.
+* `test_parse.nim` — parsing tests and performance experiments.
+* `test_features.nim` — feature-level tests.
 
-- 🔎 full-text search;
-- 📚 NLP tools;
-- 🤖 chatbots;
-- 💬 Russian text processing;
-- 🎮 game dialogue systems;
-- 🧙 RPG and MUD projects;
-- 📜 interactive fiction;
-- 🗂️ document indexing;
-- 📊 corpus analysis;
-- ✍️ procedural text generation;
-- 🔤 word normalization;
-- 🧩 automatic grammatical agreement.
+## Requirements
 
-Example:
+The runtime requires:
 
-    1 найденный меч
-    2 найденных меча
-    5 найденных мечей
-    21 найденный меч
+* Nim 2.x;
+* a supported operating system;
+* filesystem access for the dictionary cache.
 
----
+The project is intended to work on common desktop/server platforms supported by Nim.
 
-## 🛠️ Requirements
+For performance-oriented builds:
 
-Required:
+```bash
+nim c -d:release --mm:orc your_app.nim
+```
 
-- [Nim](https://nim-lang.org/)
-- a supported operating system;
-- filesystem access for dictionary caching.
+## Design goals
 
-Supported platforms:
+The project deliberately favors:
 
-    Windows
-    Linux
-    macOS
+**Small runtime overhead**
 
-Recommended release build:
+The dictionary remains a compact binary resource instead of becoming a large collection of runtime objects.
 
-    nim c -d:release --mm:orc your_app.nim
+**Predictable data access**
 
----
+Known-word lookup follows a deterministic trie path and then resolves the associated payload and paradigm.
 
-## 🤝 Contributing
+**Native implementation**
+
+The core analyzer is written in Nim without requiring a Python runtime.
+
+**Practical morphology**
+
+The goal is not to build a general-purpose linguistic framework, but to provide useful Russian morphology and word generation in a form that is easy to embed into Nim applications.
+
+**Separation of build-time and runtime**
+
+Dictionary construction can be expensive and complex. Runtime applications should only need the compiled binary dictionary.
+
+## Limitations
+
+`nimorphy` is intentionally focused on Russian morphology.
+
+The following points are important:
+
+* Unknown-word analysis is heuristic and can be wrong.
+* A word may have multiple valid morphological interpretations.
+* `parse()` returns analyses; selecting the semantically correct interpretation may require application-level context.
+* Benchmark numbers are environment-dependent.
+* The dictionary is derived from external linguistic data and therefore inherits the coverage and properties of that data.
+* The runtime requires a compatible compiled dictionary.
+
+## License
+
+### Library
+
+The `nimorphy` source code is released under the MIT License.
+
+### Dictionary data
+
+The bundled/generated dictionary data is based on OpenCorpora data.
+
+OpenCorpora data is distributed under the Creative Commons Attribution-ShareAlike 3.0 Unported license (CC BY-SA 3.0).
+
+See the project and data licenses for the exact terms that apply to a particular distribution.
+
+## Contributing
 
 Contributions are welcome.
 
-Useful contributions include:
+Useful areas include:
 
-- bug reports;
-- tests;
-- dictionary improvements;
-- performance optimizations;
-- new heuristic rules;
-- API improvements;
-- documentation.
+* correctness fixes;
+* morphological test cases;
+* parser improvements;
+* unknown-word heuristics;
+* dictionary tooling;
+* performance improvements;
+* API design;
+* documentation;
+* reproducible benchmarks.
 
-For large changes, opening an issue before implementation is recommended.
+For larger changes, opening an issue first is recommended.
 
----
+## Status
 
-## 📄 License & Credits
+`nimorphy` is an actively developed library.
 
-- **Library Code:** Distributed under the **[MIT License](LICENSE)** © 2026 framefrok.
-- **Dictionary Data:** Based on data from the **[OpenCorpora](http://opencorpora.org/)** project, licensed under **[Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)](https://creativecommons.org/licenses/by-sa/3.0/)**.
-
----
-
-## 🔗 Links
-
-- [Nim](https://nim-lang.org/)
-- [OpenCorpora](http://opencorpora.org/)
-- [pymorphy2](https://github.com/pymorphy2/pymorphy2)
-- [pymorphy3](https://github.com/nozavroni/pymorphy3)
+The core dictionary lookup and morphological operations are usable, while some higher-level areas—especially unknown-word analysis and parse ranking—are intentionally heuristic and continue to evolve.
 
 ---
 
-# 🇷🇺 Русский
+# nimorphy
 
-## ✨ Возможности
+### Быстрый и компактный морфологический анализ русского языка для Nim
 
-- 🚀 **Экстремальная производительность** — более **1 150 000 разборов/сек** на одном ядре CPU.
-- 🧠 **Автоматическое управление словарём** — готовый словарь автоматически загружается из GitHub Releases и кэшируется локально.
-- 💾 **Memory Mapping (`mmap`)** — бинарный словарь напрямую отображается в адресное пространство процесса.
-- ⚡ **Минимум аллокаций** — поиск по словарю не требует лишних heap-аллокаций.
-- 🏷️ **Битовые маски граммем** — грамматические признаки представлены компактными `set[Grammeme]`.
-- 🔄 **Словоизменение** — получение нужных форм по падежу, числу, роду, времени и другим грамматическим признакам.
-- 🔢 **Согласование с числительными** — автоматический выбор правильной формы слова.
-- 🔮 **Предиктор неизвестных слов** — анализ сленга, технических терминов, неологизмов и других слов, отсутствующих в словаре.
-- 📦 **Совместимость с ARC / ORC** — поддержка современных моделей управления памятью Nim.
+`nimorphy` — нативная библиотека для морфологического анализа и словоизменения русского языка, написанная на Nim.
 
----
+Она предназначена для приложений, которым нужен русский морфологический анализ без встраивания Python и без необходимости полностью разворачивать большой словарь в набор runtime-объектов при запуске.
 
-## ⚡ Benchmark
+В основе библиотеки лежат компактный бинарный словарь, memory mapping, плоское префиксное дерево для поиска слов, компактные грамматические признаки и морфологические парадигмы.
 
-Однопоточный морфологический анализ:
+## Возможности
 
-| Библиотека | Язык | Скорость | Запуск |
-| :--- | :--- | ---: | ---: |
-| **nimorphy** | **Nim** | **~1 160 000 слов/сек** | **< 1 мс** |
-| Pymorphy2 (Fast / DAWG) | Python + Cython | ~180 000 слов/сек | ~300 мс |
-| Pymorphy2 (Pure) | Python | ~15 000 слов/сек | ~1 200 мс |
+* **Морфологический анализ русского языка**
 
-> Результаты зависят от процессора, версии компилятора, параметров сборки, версии словаря и входных данных.
+  * получение всех доступных разборов;
+  * определение нормальной формы слова;
+  * определение части речи и грамматических признаков.
 
----
+* **Словоизменение**
 
-## 📦 Установка
+  * получение нужной грамматической формы;
+  * сохранение исходных признаков, когда это возможно;
+  * поддержка падежа, числа, рода, времени и других доступных граммем.
+
+* **Согласование с числительными**
+
+  * автоматический выбор формы слова для чисел;
+  * удобно для генерации русского текста.
+
+* **Обработка неизвестных слов**
+
+  * эвристический анализ слов, отсутствующих в словаре;
+  * использование окончаний, суффиксов и известных морфологических шаблонов;
+  * подходит для технических терминов, сленга, игровых терминов и неологизмов.
+
+* **Memory mapping**
+
+  * бинарный словарь напрямую отображается в адресное пространство процесса;
+  * не требуется полностью разбирать его в большое дерево runtime-объектов при каждом запуске.
+
+* **Компактное runtime-представление**
+
+  * поиск выполняется через плоский trie;
+  * грамматические свойства хранятся как компактные множества;
+  * одинаковые парадигмы переиспользуются при построении словаря.
+
+* **Нативный Nim**
+
+  * runtime написан на Nim;
+  * сам анализатор не требует Python или Cython во время работы.
+
+## Быстрый старт
 
 Установка через Nimble:
 
-    nimble install nimorphy
+```bash
+nimble install nimorphy
+```
 
-После установки:
+Использование:
 
-    import nimorphy
+```nim
+import nimorphy
 
-Ручная установка словаря не требуется.
+let morph = newMorphAnalyzer()
 
-При необходимости библиотека автоматически найдёт или скачает готовый бинарный словарь и сохранит его в кэше.
+let parses = morph.parse("стали")
 
----
+for p in parses:
+  echo p.normalForm, " -> ", p.tag
 
-## 🚀 Быстрый старт
+morph.close()
+```
 
-    import nimorphy
+У одного слова может быть несколько вариантов разбора. Например, `стали` может соответствовать разным леммам и грамматическим интерпретациям.
 
-    # Инициализация.
-    # Словарь будет найден или загружен автоматически.
-    let morph = newMorphAnalyzer()
+## Словоизменение
 
-    # Морфологический анализ
-    let parses = morph.parse("стали")
+Начните с разбора слова и передайте необходимые грамматические признаки:
 
-    for p in parses:
-      echo p.normalForm, " -> ", p.tag
+```nim
+import nimorphy
 
-    # Пример:
-    # сталь -> NOUN,inan,femn,sing,gent
-    # стать -> VERB,plur,perf,intr,past,indc
+let morph = newMorphAnalyzer()
 
+let sword = morph.parse("меч")[0]
 
-    # Склонение
-    let sword = morph.parse("меч")[0]
+echo morph.inflect(sword, {ablt}).word
+# мечом
 
-    echo morph.inflect(sword, {ablt}).word
-    # мечом
+echo morph.inflect(sword, {plur, gent}).word
+# мечей
 
-    echo morph.inflect(sword, {plur, gent}).word
-    # мечей
+morph.close()
+```
 
+`inflect()` использует парадигму, связанную с выбранным разбором слова, чтобы получить нужную форму.
 
-    # Согласование с числительными
-    let coin = morph.parse("монета")[0]
+## Согласование с числительными
 
-    echo morph.agreeWithNumber(coin, 1).word
-    # монета
+Для русского языка форма существительного зависит от числа.
 
-    echo morph.agreeWithNumber(coin, 4).word
-    # монеты
+`nimorphy` предоставляет готовую функцию:
 
-    echo morph.agreeWithNumber(coin, 10).word
-    # монет
+```nim
+import nimorphy
 
+let morph = newMorphAnalyzer()
 
-    # Эвристический анализ неизвестного слова
-    let unknown = morph.parse("байткодом")[0]
+let coin = morph.parse("монета")[0]
 
-    echo unknown.normalForm
-    # байткод
+echo morph.agreeWithNumber(coin, 1).word
+# монета
 
-    echo unknown.tag
-    # NOUN,inan,masc,sing,ablt
+echo morph.agreeWithNumber(coin, 2).word
+# монеты
 
+echo morph.agreeWithNumber(coin, 5).word
+# монет
 
-    morph.close()
+echo morph.agreeWithNumber(coin, 21).word
+# монета
 
----
+morph.close()
+```
 
-## 🔄 Морфологические операции
+Это особенно удобно для:
 
-### Анализ
+* игр;
+* RPG и MUD;
+* чат-ботов;
+* интерфейсов;
+* генераторов текста;
+* систем процедурного текста.
 
-Получение всех доступных морфологических разборов слова:
+## Неизвестные слова
 
-    let parses = morph.parse("стали")
+Ни один словарь не может содержать все возможные слова.
 
-    for p in parses:
-      echo p.normalForm, " -> ", p.tag
-
-Пример:
-
-    сталь -> NOUN,inan,femn,sing,gent
-    стать -> VERB,plur,perf,intr,past,indc
-
-### Словоизменение
-
-Получение нужной грамматической формы:
-
-    let sword = morph.parse("меч")[0]
-
-    echo morph.inflect(sword, {ablt}).word
-    # мечом
-
-    echo morph.inflect(sword, {plur, gent}).word
-    # мечей
-
-### Согласование с числительными
-
-Автоматический выбор формы, соответствующей числу:
-
-    let coin = morph.parse("монета")[0]
-
-    echo morph.agreeWithNumber(coin, 1).word
-    # монета
-
-    echo morph.agreeWithNumber(coin, 2).word
-    # монеты
-
-    echo morph.agreeWithNumber(coin, 5).word
-    # монет
-
-    echo morph.agreeWithNumber(coin, 21).word
-    # монета
-
----
-
-## 🧠 Несловарные слова
-
-Не каждое возможное русское слово может находиться в словаре.
-
-Для неизвестных слов `nimorphy` использует эвристический предиктор, анализирующий суффиксы, окончания и характерные морфологические шаблоны.
+Если слово не найдено напрямую, `nimorphy` может использовать эвристический предиктор.
 
 Например:
 
-    байткодом
-        │
-        ├── normal form: байткод
-        ├── часть речи: NOUN
-        ├── род: MASC
-        ├── число: SING
-        └── падеж: ABLT
+```nim
+import nimorphy
 
-Это особенно полезно для:
+let morph = newMorphAnalyzer()
 
-- технических терминов;
-- названий технологий;
-- сленга;
-- игровых терминов;
-- неологизмов;
-- пользовательских слов.
+let result = morph.parse("байткодом")[0]
 
----
+echo result.normalForm
+# байткод
 
-## ⚙️ Архитектура
+echo result.tag
+# NOUN,inan,masc,sing,ablt
 
-### 1. Memory Mapping
+morph.close()
+```
 
-Бинарный словарь `dict.bin` напрямую отображается операционной системой в адресное пространство процесса через `mmap`.
+Предиктор является эвристическим и не использует статистическую или нейросетевую модель. Его результат следует воспринимать как предположение, а не как гарантированно правильный разбор.
 
-Традиционный подход:
+Он особенно полезен для слов, которые часто встречаются вне статического словаря:
 
+* технические термины;
+* слова из мира программирования и технологий;
+* сленг;
+* игровые термины;
+* пользовательская лексика;
+* новые слова.
+
+## Архитектура
+
+Runtime построен вокруг заранее скомпилированного бинарного словаря.
+
+```text
+                  OpenCorpora XML
+                         │
+                         ▼
+                   Сборщик словаря
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+       обработка парадигм       построение trie
+             │                       │
+             └───────────┬───────────┘
+                         ▼
+                      dict.bin
+                         │
+                         ▼
+                        mmap
+                         │
+                         ▼
+                     MorphDict
+                         │
+                         ▼
+                    поиск слова
+                         │
+                ┌────────┴────────┐
+                ▼                 ▼
+             анализ           парадигма
+```
+
+### Memory mapping
+
+Runtime-словарь хранится в `dict.bin` и используется через memory mapping.
+
+Вместо того чтобы загружать весь словарь в множество runtime-объектов, анализатор работает непосредственно с отображённым бинарным представлением.
+
+Это уменьшает объём работы при запуске и не требует полного дублирования словаря в heap-структурах.
+
+### Trie
+
+Известные слова хранятся в компактном плоском trie.
+
+Упрощённо:
+
+```text
+м
+└── е
+    └── ч
+        └── terminal
+            └── payload
+```
+
+Узлы содержат компактные смещения и ссылки на соответствующие данные слова.
+
+### Морфологические парадигмы
+
+Словоформы не хранятся как полностью независимые записи.
+
+Вместо этого они группируются в парадигмы, содержащие информацию, необходимую для восстановления форм и их грамматических признаков.
+
+Идентичные парадигмы могут переиспользоваться, что уменьшает дублирование данных в словаре.
+
+### Граммемы
+
+Грамматические свойства представлены через компактный тип:
+
+```nim
+set[Grammeme]
+```
+
+Это позволяет выполнять проверки и комбинировать грамматические признаки без хранения большого количества строк.
+
+## Сборка словаря
+
+Обычному пользователю собирать словарь вручную не требуется.
+
+В репозитории есть отдельный сборщик, который преобразует XML-данные OpenCorpora в бинарный словарь runtime.
+
+Пример команды:
+
+```bash
+nim c -r -d:release --mm:orc -d:danger tools/build_dict.nim
+```
+
+Общий pipeline выглядит так:
+
+```text
+OpenCorpora XML
+      │
+      ▼
+  разбор XML
+      │
+      ▼
+ обработка лемм и связей
+      │
+      ▼
+ нормализация парадигм
+      │
+      ▼
+ дедупликация парадигм
+      │
+      ▼
+  компактный trie
+      │
+      ▼
+ бинарная сериализация
+      │
+      ▼
     dict.bin
-       ↓
-      read
-       ↓
-      parse
-       ↓
-    allocate
-       ↓
-   build objects
-       ↓
-     lookup
+```
 
-Подход `nimorphy`:
+Сборщик отделён от runtime, поэтому конечному приложению не требуется содержать код генерации словаря.
 
-    dict.bin
-       ↓
-      mmap
-       ↓
-  mapped dictionary
-       ↓
-     lookup
-
-Это позволяет избежать полного разбора словаря при каждом запуске.
-
-### 2. Compact Trie
-
-Для поиска используется компактное префиксное дерево:
-
-    "м"
-     │
-     └── "е"
-          │
-          └── "ч"
-               │
-               └── terminal
-                    │
-                    └── paradigm
-
-Узлы Trie хранятся в компактном бинарном представлении, рассчитанном на быстрый доступ к данным.
-
-### 3. Сжатие парадигм
-
-Словоформы не хранятся как полностью независимые строки.
-
-Вместо этого используются компактные структуры:
-
-    основа
-    +
-    окончание
-    +
-    парадигма
-    +
-    грамматические данные
-
-Например:
-
-    мечом
-     │
-     ├── основа: меч
-     └── окончание: ом
-
-Так уменьшается количество дублирующихся данных в словаре.
-
-### 4. Битовые маски граммем
-
-Грамматические признаки представлены через:
-
-    set[Grammeme]
-
-Это позволяет быстро выполнять проверки с помощью битовых операций вместо строковых сравнений и тяжёлых runtime-структур.
-
----
-
-## 🗃️ Словарь
+## Бинарный словарь
 
 Основной runtime-файл:
 
-    dict.bin
+```text
+dict.bin
+```
 
-Упрощённая структура:
+На высоком уровне в нём находятся:
 
-    dict.bin
-    │
-    ├── Header
-    ├── Trie Nodes
-    ├── UTF-8 Transitions
-    ├── Paradigm References
-    ├── Word Metadata
-    ├── Endings
-    └── Grammeme Data
+```text
+Header
+Tag / grammeme data
+String storage
+Morphological rules
+Paradigm indexes
+Word payloads
+Trie nodes
+```
 
-Бинарный формат предназначен для быстрого поиска и эффективного использования через memory mapping.
+Runtime проверяет структуру словаря до использования внутренних смещений и счётчиков.
 
----
+Это позволяет сохранить компактное бинарное представление и одновременно отклонять повреждённые или несовместимые файлы словаря.
 
-## 🔨 Сборка словаря
+## Управление словарём
 
-В большинстве случаев ручная сборка не требуется.
+Анализатор умеет автоматически находить и обслуживать словарь.
 
-Для сборки словаря из XML-дампа OpenCorpora:
+```nim
+import nimorphy
 
-    nim c -r -d:release --mm:orc -d:danger tools/build_dict.nim
+let morph = newMorphAnalyzer()
 
-Инструмент выполняет следующий процесс:
+echo morph.parse("дом")[0].normalForm
 
-    OpenCorpora XML
-          │
-          ▼
-        Parse
-          │
-          ▼
-    Дедупликация парадигм
-          │
-          ▼
-      Compact Trie
-          │
-          ▼
-    Бинарная сериализация
-          │
-          ▼
-        dict.bin
+morph.close()
+```
 
----
+Готовый словарь может сохраняться в локальном кеше и повторно использоваться при последующих запусках.
 
-## 🎮 Применение
+Для контролируемых окружений можно использовать конкретный файл словаря вместо автоматического получения.
 
-`nimorphy` подходит для:
+## Производительность
 
-- 🔎 полнотекстового поиска;
-- 📚 NLP-инструментов;
-- 🤖 чат-ботов;
-- 💬 обработки русского текста;
-- 🎮 игровых диалогов;
-- 🧙 RPG и MUD;
-- 📜 интерактивной литературы;
-- 🗂️ индексации документов;
-- 📊 анализа корпусов;
-- ✍️ процедурной генерации текста;
-- 🔤 нормализации слов;
-- 🧩 автоматического согласования.
+`nimorphy` изначально проектируется для приложений, где важны скорость работы и небольшой runtime overhead.
 
-Например:
+Для этого используются:
 
-    1 найденный меч
-    2 найденных меча
-    5 найденных мечей
-    21 найденный меч
+* memory-mapped dictionary;
+* компактный trie;
+* фиксированные целочисленные смещения;
+* дедупликация парадигм;
+* компактное хранение грамматических признаков;
+* отсутствие необходимости в Python runtime.
 
----
+В репозитории есть отдельные тесты, выполняющие большое число повторных разборов.
 
-## 🛠️ Требования
+Результаты benchmark зависят от:
 
-Необходимы:
+* процессора;
+* версии Nim;
+* параметров компиляции;
+* memory manager;
+* версии словаря;
+* входных данных;
+* методики измерения.
 
-- [Nim](https://nim-lang.org/)
-- поддерживаемая операционная система;
-- доступ к файловой системе для кэширования словаря.
+Поэтому конкретные числа benchmark следует рассматривать как результаты конкретного окружения, а не как универсальную гарантию производительности.
 
-Поддерживаемые платформы:
+## Для чего подходит
 
-    Windows
-    Linux
-    macOS
+`nimorphy` может использоваться для:
 
-Рекомендуемая release-сборка:
+* нормализации русского текста;
+* полнотекстового поиска;
+* индексации;
+* NLP-инструментов;
+* чат-ботов;
+* обработки документов;
+* анализа корпусов;
+* процедурной генерации текста;
+* игровых диалогов;
+* RPG и MUD;
+* генераторов текста;
+* автоматического согласования.
 
-    nim c -d:release --mm:orc your_app.nim
+Особенно полезно сочетание морфологического анализа и динамической генерации текста:
 
----
+```text
+1 найденный меч
+2 найденных меча
+5 найденных мечей
+21 найденный меч
+```
 
-## 🤝 Участие в разработке
+Библиотека предоставляет базовые морфологические данные, необходимые для программ, которые генерируют русский текст во время работы.
 
-Вклад в проект приветствуется.
+## Структура проекта
 
-Особенно полезны:
+```text
+nimorphy/
+├── src/
+│   ├── analyzer.nim
+│   ├── dict.nim
+│   ├── dict_manager.nim
+│   ├── nimorphy.nim
+│   ├── tag.nim
+│   └── trie.nim
+│
+├── tools/
+│   ├── build_dict.nim
+│   ├── test_features.nim
+│   └── test_parse.nim
+│
+├── nimorphy.nimble
+└── README.md
+```
 
-- bug reports;
-- тесты;
-- улучшения словаря;
-- оптимизации;
-- новые эвристические правила;
-- улучшения API;
-- документация.
+### Runtime-модули
 
-Для крупных изменений рекомендуется предварительно открыть issue с описанием предложения.
+* `analyzer.nim` — морфологический анализ, словоизменение, согласование с числами и обработка неизвестных слов.
+* `dict.nim` — бинарный словарь, загрузка, проверка и доступ к данным.
+* `dict_manager.nim` — поиск, загрузка, кеширование и управление словарём.
+* `tag.nim` — грамматические теги и граммемы.
+* `trie.nim` — структуры trie и поиск.
+* `nimorphy.nim` — публичный интерфейс библиотеки.
 
----
+### Инструменты
 
-## 📄 Лицензии и авторские права (License & Credits)
+* `build_dict.nim` — сборка `dict.bin` из данных OpenCorpora.
+* `test_parse.nim` — тесты анализа и эксперименты с производительностью.
+* `test_features.nim` — функциональные тесты.
 
-- **Код библиотеки (Code):** распространяется под лицензией [MIT](LICENSE) © 2026 framefrok.
-- **Словарные данные (Dictionary Data):** используются данные проекта [OpenCorpora](http://opencorpora.org/), распространяемые по лицензии [Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)](https://creativecommons.org/licenses/by-sa/3.0/).
+## Требования
 
----
+Для runtime необходимы:
 
-## 🔗 Ссылки
+* Nim 2.x;
+* поддерживаемая операционная система;
+* доступ к файловой системе для кеша словаря.
 
-- [Nim](https://nim-lang.org/)
-- [OpenCorpora](http://opencorpora.org/)
-- [pymorphy2](https://github.com/pymorphy2/pymorphy2)
-- [pymorphy3](https://github.com/nozavroni/pymorphy3)
+Для release-сборки:
 
----
+```bash
+nim c -d:release --mm:orc your_app.nim
+```
 
-<div align="center">
+## Основные принципы проекта
 
-# nimorphy ⚡
+**Низкий runtime overhead**
 
-### Fast Russian morphology in pure Nim
+Словарь остаётся компактным бинарным ресурсом, а не превращается в большое количество runtime-объектов.
 
-**Fast · Small · Native**
+**Предсказуемый поиск**
 
-</div>
+Поиск известного слова выполняется по детерминированному пути trie с последующим доступом к payload и парадигме.
+
+**Нативный Nim**
+
+Основная логика анализатора реализована непосредственно на Nim.
+
+**Практическая морфология**
+
+Цель проекта — не создать универсальную лингвистическую платформу, а дать Nim-приложениям удобный и быстрый инструмент для работы с русской морфологией.
+
+**Разделение build-time и runtime**
+
+Сложная работа по построению словаря выполняется отдельно. Runtime-приложению нужен только уже подготовленный бинарный словарь.
+
+## Ограничения
+
+`nimorphy` сфокусирован на русском языке.
+
+Важно учитывать:
+
+* анализ неизвестных слов является эвристическим;
+* у слова может существовать несколько корректных разборов;
+* `parse()` возвращает варианты, а выбор подходящего варианта в зависимости от контекста может потребовать дополнительной логики приложения;
+* benchmark зависит от окружения;
+* качество покрытия определяется исходными лингвистическими данными;
+* runtime требует совместимый бинарный словарь.
+
+## Лицензия
+
+### Библиотека
+
+Исходный код `nimorphy` распространяется под лицензией MIT.
+
+### Данные словаря
+
+Словарь построен на основе данных OpenCorpora.
+
+Данные OpenCorpora распространяются на условиях Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0).
+
+Для конкретной распространяемой версии необходимо учитывать условия лицензии как самого кода, так и используемых словарных данных.
+
+## Участие в разработке
+
+Приветствуются:
+
+* исправления ошибок;
+* новые тесты морфологии;
+* улучшения анализа;
+* улучшение predictor неизвестных слов;
+* развитие инструментов сборки словаря;
+* оптимизации;
+* улучшения API;
+* документация;
+* воспроизводимые benchmark.
+
+Для крупных изменений желательно сначала открыть issue с описанием предложения.
+
+## Статус проекта
+
+`nimorphy` находится в активной разработке.
+
+Базовый поиск по словарю и основные операции морфологии уже реализованы. Более высокоуровневые части, особенно эвристический анализ неизвестных слов и ранжирование вариантов разбора, продолжают развиваться.
