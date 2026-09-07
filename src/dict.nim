@@ -71,7 +71,12 @@ proc buildLemma*(dict: MorphDict, word: string, payload: WordPayload): (string, 
 
   let stemLen = word.len - curSuffix.len - curPrefix.len
   let stemStart = curPrefix.len
-  let stem = word[stemStart ..< stemStart + stemLen]
+
+  # Защита от выхода за границы строки при непредвиденных формах
+  let stem = if stemLen < 0 or stemStart + stemLen > word.len:
+               word
+             else:
+               word[stemStart ..< stemStart + stemLen]
 
   let lemmaRule = dict.getRule(payload.paradigmId, 0)
   let lemmaSuffix = dict.getString(lemmaRule.suffixOffset)
@@ -102,6 +107,16 @@ proc loadDict*(path: string): MorphDict =
   if header.version != CurrentFormatVersion:
     m.close()
     raise newException(ValueError, "Unsupported dictionary version")
+
+  let fileSize = m.size.uint64
+  if header.tagOffset > fileSize or
+     header.stringPoolOffset > fileSize or
+     header.ruleOffset > fileSize or
+     header.paradigmIndexOffset > fileSize or
+     header.payloadOffset > fileSize or
+     header.nodeOffset > fileSize:
+    m.close()
+    raise newException(ValueError, "Corrupted dictionary file (section offsets out of bounds)")
 
   let base = cast[uint](m.address)
   

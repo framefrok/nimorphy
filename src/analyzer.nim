@@ -85,7 +85,9 @@ proc extractStem(dict: MorphDict, word: string, payload: WordPayload): string {.
 proc inflect*(analyzer: MorphAnalyzer, p: Parse, requiredGrammemes: GrammemeSet): Parse =
   ## Изменяет форму слова p в соответствии с требуемыми граммемами (например, {ablt}, {plur, gent})
   result = p
-  if p.paradigmId == 0 and p.formIdx == 0 and analyzer == nil:
+  if analyzer == nil or analyzer.dict == nil:
+    return
+  if p.paradigmId == 0 and p.formIdx == 0:
     return
 
   let dict = analyzer.dict
@@ -180,6 +182,9 @@ proc agreeWithNumber*(p: Parse, analyzer: MorphAnalyzer, num: int): Parse {.inli
 
 proc predictUnknown(analyzer: MorphAnalyzer, normWord, rawWord: string): seq[Parse] =
   result = @[]
+  if analyzer == nil or analyzer.dict == nil:
+    return
+
   let dict = analyzer.dict
   let wordLen = normWord.len
   if wordLen < 4:
@@ -217,7 +222,7 @@ proc predictUnknown(analyzer: MorphAnalyzer, normWord, rawWord: string): seq[Par
 proc parse*(analyzer: MorphAnalyzer, word: string): seq[Parse] =
   ## Возвращает список всех вариантов морфологического разбора слова
   result = @[]
-  if word.len == 0:
+  if analyzer == nil or analyzer.dict == nil or word.len == 0:
     return
 
   let normWord = toLowerRu(word)

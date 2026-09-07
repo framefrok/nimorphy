@@ -13,6 +13,7 @@ when defined(windows):
     PAGE_READONLY = 0x02'i32
     FILE_MAP_READ = 0x04'i32
     INVALID_HANDLE_VALUE = -1
+    INVALID_FILE_SIZE = -1'i32
 
   proc createFileW(
     lpFileName: WideCString,
@@ -82,8 +83,16 @@ when defined(windows):
     
     var sizeHigh: int32 = 0
     let sizeLow = getFileSize(fHandle, addr sizeHigh)
-    let totalSize = (int(sizeHigh) shl 32) or (int(sizeLow) and 0xFFFFFFFF)
-    
+    if sizeLow == INVALID_FILE_SIZE and sizeHigh != 0:
+      discard closeHandle(fHandle)
+      raise newException(IOError, "Cannot get file size: " & path)
+
+    # Безопасный расчет 64-битного размера для 32/64-битных платформ
+    let totalSize64 = (int64(sizeHigh) shl 32) or (int64(sizeLow) and 0xFFFFFFFF'i64)
+    if totalSize64 <= 0:
+      discard closeHandle(fHandle)
+      raise newException(IOError, "File is empty or invalid size: " & path)
+
     let mHandle = createFileMappingW(fHandle, nil, PAGE_READONLY, 0, 0, nil)
     if mHandle == 0:
       discard closeHandle(fHandle)
@@ -96,7 +105,7 @@ when defined(windows):
       raise newException(IOError, "Cannot map view of file: " & path)
 
     res.address = view
-    res.size = totalSize
+    res.size = totalSize64.int
     res.fileHandle = fHandle
     res.mapHandle = mHandle
     return res
@@ -131,6 +140,10 @@ else:
       raise newException(IOError, "Cannot stat file: " & path)
       
     let size = statBuf.st_size.int
+    if size <= 0:
+      discard posix.close(fd)
+      raise newException(IOError, "File is empty or invalid size: " & path)
+
     let addrPtr = mmap(nil, size, PROT_READ, MAP_SHARED, fd, 0)
     if addrPtr == MAP_FAILED:
       discard posix.close(fd)

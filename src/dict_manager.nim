@@ -15,46 +15,50 @@ proc getAppCacheDictPath*(): string =
 proc extractZip(zipPath, destDir: string) =
   when defined(windows):
     # 1. Пробуем tar.exe (встроен в Windows 10/11)
-    let tarCmd = "tar.exe -xf \"" & zipPath & "\" -C \"" & destDir & "\""
+    let tarCmd = "tar.exe -xf " & quoteShell(zipPath) & " -C " & quoteShell(destDir)
     if execShellCmd(tarCmd) == 0:
       return
 
-    # 2. Пробуем powershell.exe
-    let psCmd = "powershell.exe -NoProfile -Command \"Expand-Archive -Path '" & zipPath & "' -DestinationPath '" & destDir & "' -Force\""
+    # 2. Пробуем powershell.exe с экранированием апострофов и флагом -LiteralPath
+    let psZip = zipPath.replace("'", "''")
+    let psDest = destDir.replace("'", "''")
+    let psCmd = "powershell.exe -NoProfile -Command \"Expand-Archive -LiteralPath '" & psZip & "' -DestinationPath '" & psDest & "' -Force\""
     if execShellCmd(psCmd) == 0:
       return
 
     # 3. Пробуем python.exe
-    let pyCmd = "python.exe -m zipfile -e \"" & zipPath & "\" \"" & destDir & "\""
+    let pyCmd = "python.exe -m zipfile -e " & quoteShell(zipPath) & " " & quoteShell(destDir)
     if execShellCmd(pyCmd) == 0:
       return
 
     raise newException(IOError, "Не удалось распаковать словарь (tar.exe, powershell.exe и python.exe недоступны)")
   else:
-    if execShellCmd("unzip -o \"" & zipPath & "\" -d \"" & destDir & "\"") == 0:
+    if execShellCmd("unzip -o " & quoteShell(zipPath) & " -d " & quoteShell(destDir)) == 0:
       return
-    if execShellCmd("tar -xf \"" & zipPath & "\" -C \"" & destDir & "\"") == 0:
+    if execShellCmd("tar -xf " & quoteShell(zipPath) & " -C " & quoteShell(destDir)) == 0:
       return
     raise newException(IOError, "Failed to extract dictionary archive (unzip/tar required)")
 
 proc downloadNative(url, destPath: string) =
-  ## Системная загрузка через curl / PowerShell (не требует OpenSSL DLL)
+  ## Системная загрузка через curl / PowerShell (не требует внешних OpenSSL DLL)
   when defined(windows):
-    let curlCmd = "curl.exe -f -L -o \"" & destPath & "\" \"" & url & "\""
+    let curlCmd = "curl.exe -f -L -o " & quoteShell(destPath) & " " & quoteShell(url)
     if execShellCmd(curlCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
-    let psCmd = "powershell.exe -NoProfile -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('" & url & "', '" & destPath & "')\""
+    let psDest = destPath.replace("'", "''")
+    let psUrl = url.replace("'", "''")
+    let psCmd = "powershell.exe -NoProfile -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('" & psUrl & "', '" & psDest & "')\""
     if execShellCmd(psCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
     raise newException(IOError, "Не удалось скачать словарь через curl.exe или powershell.exe")
   else:
-    let curlCmd = "curl -f -L -o \"" & destPath & "\" \"" & url & "\""
+    let curlCmd = "curl -f -L -o " & quoteShell(destPath) & " " & quoteShell(url)
     if execShellCmd(curlCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
-    let wgetCmd = "wget -O \"" & destPath & "\" \"" & url & "\""
+    let wgetCmd = "wget -O " & quoteShell(destPath) & " " & quoteShell(url)
     if execShellCmd(wgetCmd) == 0 and fileExists(destPath) and getFileSize(destPath) > 1000:
       return
 
